@@ -1,0 +1,329 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face{font-family:Archivo;src:url(fonts/archivo.woff2);font-weight:100 900;font-stretch:62% 125%}
+@font-face{font-family:Serif;src:url(fonts/instrument.woff2)}
+:root{--ink:#0C0D0A;--paper:#F1EEE4;--mute:#7C7D72;--green:#22A23C;--brick:#C65B3C}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;height:1920px;overflow:hidden;background:var(--ink)}
+#root{position:relative;width:1080px;height:1920px;overflow:hidden;background:var(--ink);font-family:Archivo;color:var(--paper)}
+#cam{position:absolute;inset:0;transform-origin:540px 960px}
+.L{position:absolute;inset:0}
+.ab{position:absolute}
+.h{font-weight:900;font-stretch:62%;text-transform:uppercase;line-height:.82;letter-spacing:-.01em;white-space:nowrap}
+.w{font-weight:600;font-stretch:125%;text-transform:uppercase;letter-spacing:.14em;font-size:26px;white-space:nowrap}
+.serif{font-family:Serif;font-style:italic;font-weight:400;white-space:nowrap;line-height:1}
+.hud{position:absolute;font-weight:500;font-stretch:112%;font-size:20px;letter-spacing:.18em;text-transform:uppercase;white-space:nowrap}
+.m{overflow:hidden;padding:.18em .04em .08em;margin:-.18em -.04em -.08em;display:block}
+.m>span{display:inline-block;will-change:transform}
+#grain{position:absolute;inset:-64px;background:url(grain0.png);opacity:.11;mix-blend-mode:overlay;pointer-events:none}
+#grain2{position:absolute;inset:-64px;background:url(grain1.png);background-size:256px;opacity:.05;mix-blend-mode:screen;pointer-events:none}
+#vig{position:absolute;inset:0;background:radial-gradient(120% 80% at 40% 42%,transparent 42%,rgba(0,0,0,.5) 100%);pointer-events:none}
+#flash{position:absolute;inset:0;background:var(--paper);opacity:0;pointer-events:none}
+</style><script src="objects.js"></script></head><body>
+<div id="root"><div id="cam"><div id="sc" class="L"></div><img id="logo" src="logo_2x.png" class="ab" style="display:none;width:500px;left:290px;top:420px"></div>
+<div id="vig"></div><div id="grain"></div><div id="grain2"></div><div id="flash"></div></div>
+<script>
+const W=1080,H=1920;
+const cl=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+const P=(t,a,d)=>cl((t-a)/d);
+const lerp=(a,b,x)=>a+(b-a)*x;
+const E={
+ outExpo:x=>x>=1?1:1-Math.pow(2,-10*x),
+ inExpo:x=>x<=0?0:Math.pow(2,10*x-10),
+ inOutExpo:x=>x<=0?0:x>=1?1:x<.5?Math.pow(2,20*x-10)/2:(2-Math.pow(2,-20*x+10))/2,
+ outBack:(x,s=1.7)=>x<=0?0:1+(s+1)*Math.pow(x-1,3)+s*Math.pow(x-1,2),
+ outCubic:x=>1-Math.pow(1-x,3), inCubic:x=>x*x*x,
+ inOutCubic:x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2,
+};
+// damped spring 0->1, x seconds since start
+const spr=(x,f=2.2,z=7)=>x<=0?0:1-Math.exp(-z*x)*Math.cos(f*2*Math.PI*x);
+const esc=c=>c===' '?'&nbsp;':c;
+
+// ---- text helpers --------------------------------------------------------
+// letters rise out of the baseline mask (with overshoot), optional exit upwards
+function L(text,t,t0,o={}){
+ const {size=200,color='var(--paper)',st=.026,d=.5,cls='h',style='',te=null,ed=.32,back=1.5,from=108}=o;
+ let s='';const ch=[...text];
+ ch.forEach((c,i)=>{
+  const x=P(t,t0+i*st,d); let y=(1-E.outBack(x,back))*from;
+  if(te!==null){const xe=P(t,te+i*st*.6,ed); y-=E.inExpo(xe)*115;}
+  s+=`<span style="transform:translateY(${y.toFixed(2)}%)">${esc(c)}</span>`;
+ });
+ return `<div class="m ${cls}" style="font-size:${size}px;color:${color};${style}">${s}</div>`;
+}
+// words (serif) rise one by one at given times
+function Wd(words,times,t,o={}){
+ const {size=96,color='var(--paper)',cls='serif',style='',te=null}=o;
+ let s='';
+ words.forEach((w,i)=>{const x=P(t,times[i],.45);let y=(1-E.outBack(x,1.3))*110;
+  if(te!==null) y-=E.inExpo(P(t,te+i*.03,.3))*115;
+  s+=`<span style="transform:translateY(${y.toFixed(2)}%)">${w}${i<words.length-1?'&nbsp;':''}</span>`;});
+ return `<div class="m ${cls}" style="font-size:${size}px;color:${color};${style}">${s}</div>`;
+}
+const at=(x,y,html,extra='')=>`<div class="ab" style="left:${x}px;top:${y}px;${extra}">${html}</div>`;
+
+// ---- graphics -------------------------------------------------------------
+function rings(cx,cy,R,o={}){ // hairline target rings with scale numbers
+ const {col='rgba(241,238,228,.15)',sw=2,nums=false,ncol='rgba(241,238,228,.3)',rot=0,n=10}=o;
+ let s=`<svg class="L" width="${W}" height="${H}" style="overflow:visible"><g transform="rotate(${rot} ${cx} ${cy})">`;
+ for(let i=1;i<=n;i++){const r=R*(n+1-i)/n;s+=`<circle cx="${cx}" cy="${cy}" r="${r.toFixed(1)}" fill="none" stroke="${col}" stroke-width="${sw}"/>`;
+  if(nums&&i<9){const rr=R*(n+.5-i)/n;s+=`<text x="${(cx-rr).toFixed(1)}" y="${cy+7}" text-anchor="middle" font-family="Archivo" font-weight="600" font-size="20" fill="${ncol}">${i}</text>`;}}
+ return s+`</g></svg>`;
+}
+function target(cx,cy,R,o={}){ // ISSF-style rifle target
+ const {hole=false,paper='#F1EEE4',ink='#0C0D0A'}=o;
+ let s=`<svg class="L" width="${W}" height="${H}" style="overflow:visible">
+ <circle cx="${cx}" cy="${cy+R*.06}" r="${R*1.02}" fill="rgba(0,0,0,.55)" filter="url(#blur)"/>
+ <defs><filter id="blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${R*.06}"/></filter>
+ <radialGradient id="tg" cx=".38" cy=".32" r=".9"><stop offset="0" stop-color="#FFFDF6"/><stop offset="1" stop-color="#D9D4C5"/></radialGradient></defs>
+ <circle cx="${cx}" cy="${cy}" r="${R}" fill="url(#tg)"/>
+ <circle cx="${cx}" cy="${cy}" r="${R*.6}" fill="${ink}"/>`;
+ for(let i=1;i<=9;i++){const r=R*(11-i)/10;s+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${i>=4?'rgba(241,238,228,.75)':ink}" stroke-width="${Math.max(1.5,R*.006)}"/>`;
+  if(i<9){const rr=R*(10.5-i)/10;for(const a of [0,90,180,270]){const x=cx+rr*Math.cos(a*Math.PI/180),y=cy+rr*Math.sin(a*Math.PI/180);
+   s+=`<text x="${x.toFixed(1)}" y="${(y+R*.022).toFixed(1)}" text-anchor="middle" font-family="Archivo" font-weight="700" font-size="${(R*.06).toFixed(1)}" fill="${i>=4?'rgba(241,238,228,.85)':ink}">${i}</text>`;}}}
+ s+=`<circle cx="${cx}" cy="${cy}" r="${R*.035}" fill="${paper}"/>`;
+ if(hole){const hx=cx+R*.012,hy=cy-R*.008,hr=R*.032;
+  s+=`<circle cx="${hx}" cy="${hy}" r="${hr*1.25}" fill="none" stroke="#9A9585" stroke-width="${hr*.25}"/><circle cx="${hx}" cy="${hy}" r="${hr}" fill="#050504"/>`;}
+ return s+`</svg>`;
+}
+function oTarget(cx,cy,r){ // the green target that stands in for the "O"
+ return `<svg class="L" width="${W}" height="${H}" style="overflow:visible"><circle cx="${cx}" cy="${cy}" r="${r}" fill="var(--green)"/>`+
+  [.8,.6,.4].map(k=>`<circle cx="${cx}" cy="${cy}" r="${r*k}" fill="none" stroke="var(--ink)" stroke-width="${r*.1}"/>`).join('')+
+  `<circle cx="${cx}" cy="${cy}" r="${r*.2}" fill="var(--ink)"/><circle cx="${cx+r*.06}" cy="${cy-r*.04}" r="${r*.085}" fill="var(--paper)"/></svg>`;
+}
+function hud(col='var(--mute)',acc='var(--green)',right='Seit 1899'){
+ return `<div class="hud" style="left:72px;top:96px;color:${col}">SV Barkhausen · Porta</div>
+ <div class="hud" style="right:72px;top:96px;color:${col}">${right}</div>
+ <div class="ab" style="left:72px;top:140px;width:44px;height:3px;background:${acc}"></div>`;
+}
+
+// ---- global effects ----------------------------------------------------------
+const HITS=[[3.0,34],[3.5,26],[13.25,14],[22.5,30],[25.0,10]];
+const FLASH=[[3.0,.9],[22.5,.55]];
+function shake(t){let x=0,y=0,r=0;HITS.forEach(([ti,a],i)=>{const d=t-ti;if(d<0||d>.8)return;const k=a*Math.exp(-d*8);
+ x+=k*Math.sin(d*62+i);y+=k*Math.cos(d*51+i*2);r+=k*.02*Math.sin(d*40+i);});return {x,y,r};}
+
+let O={cx:0,cy:0,r:0}; // measured position of the "O" in scene 3
+
+// ---- scenes -----------------------------------------------------------------
+function S1(t){ // 0-3  RUHE. ATMEN. ZIEL.  heartbeat
+ const hb=[.15,1.05,1.95];
+ let pulse=0;hb.forEach(b=>{const d=t-b;if(d>=0)pulse+=Math.exp(-d*7)*.025;});
+ const z=1+t*.05+pulse;
+ let s=`<div class="L" style="transform:scale(${z});transform-origin:720px 980px">${rings(720,980,1250,{col:'rgba(241,238,228,.10)'})}</div>`;
+ // crosshair closing in
+ const g=lerp(260,70,E.inOutCubic(P(t,0,2.9))); const cx=720,cy=980;
+ s+=`<svg class="L" width="${W}" height="${H}"><g stroke="var(--brick)" stroke-width="3" fill="none" opacity="${.55+.45*P(t,0,2.8)}">
+  <circle cx="${cx}" cy="${cy}" r="${g}"/>
+  <line x1="${cx}" y1="${cy-g-60}" x2="${cx}" y2="${cy-g*.45}"/><line x1="${cx}" y1="${cy+g*.45}" x2="${cx}" y2="${cy+g+60}"/>
+  <line x1="${cx-g-60}" y1="${cy}" x2="${cx-g*.45}" y2="${cy}"/><line x1="${cx+g*.45}" y1="${cy}" x2="${cx+g+60}" y2="${cy}"/></g>
+  <circle cx="${cx}" cy="${cy}" r="5" fill="var(--brick)"/></svg>`;
+ s+=hud();
+ const words=[['Ruhe.',330,.15,2.4],['Atmen.',270,1.05,1.0],['Ziel.',230,1.95,0]];
+ words.forEach(([w,sz,t0,bl],i)=>{
+  const end=i<2?words[i+1][2]:3.0; if(t<t0||t>=end)return;
+  const x=P(t,t0,.6); const blur=lerp(16,bl,E.outCubic(x)); const sc=lerp(1.12,1,E.outExpo(x));
+  s+=at(64,960-sz*.41,L(w,t,t0,{size:sz,st:.03,d:.45}),`filter:blur(${blur.toFixed(2)}px);transform:scale(${sc});transform-origin:0 50%`);
+ });
+ // small breathing caption
+ s+=at(72,1560,`<div class="hud" style="position:static;color:var(--mute)">Puls ${[72,64,58][t<1.05?0:t<1.95?1:2]} · Abzug</div>`);
+ return s;
+}
+function S2(t){ // 3-5  hit + 10
+ const d=t-3;
+ const mv=E.inOutExpo(P(t,4.5,.5)); // move into the O
+ const punch=1+.10*(1-spr(d,2.4,7));
+ const back=E.inOutExpo(P(t,3.4,.32)); // target steps back for the 10
+ const R0=lerp(430*punch,240,back), cx0=lerp(540,770,back), cy0=lerp(940,560,back);
+ const R=lerp(R0,O.r,mv), cx=lerp(cx0,O.cx,mv), cy=lerp(cy0,O.cy,mv);
+ let s=`<div class="L" style="background:radial-gradient(50% 32% at 50% 49%,rgba(241,238,228,.10),transparent 70%)"></div>`;
+ s+=`<div class="L" style="transform:scale(${1+d*.04})">${rings(540,940,1100,{col:'rgba(241,238,228,.07)'})}</div>`;
+ s+=target(cx,cy,R,{hole:true});
+ // shockwaves
+ for(let k=0;k<3;k++){const x=P(t,3+k*.07,.7);if(x>0&&x<1){const rr=lerp(10,620+k*120,E.outExpo(x));
+  s+=`<svg class="L" width="${W}" height="${H}"><circle cx="${cx}" cy="${cy}" r="${rr}" fill="none" stroke="var(--paper)" stroke-width="${lerp(14,0.5,x)}"/></svg>`;}}
+ // giant 10
+ if(t>=3.5){const x=P(t,3.5,.5);const sc=lerp(1.7,1,E.outBack(x,1.2));const ex=E.inExpo(P(t,4.42,.32));
+  s+=`<div class="ab h" style="left:24px;top:${1160-1060*.41}px;font-size:1060px;color:var(--green);transform:translateX(${-ex*1300}px) scale(${sc}) skewX(${-ex*12}deg);transform-origin:50% 50%;letter-spacing:-.04em">10</div>`;}
+ s+=hud('var(--mute)','var(--green)','Schuss 01');
+ const sc=t<3.55?0:Math.min(10.9,(P(t,3.55,.5))*10.9);
+ s+=`<div class="hud" style="left:72px;bottom:360px;color:var(--paper)">Treffer</div><div class="hud" style="right:72px;bottom:360px;color:var(--green)">${sc.toFixed(1).replace('.',',')}</div>`;
+ return s;
+}
+function S3layout(t){ // returns html for KONZEN / TRATI(O)N
+ return at(64,560,L('Konzen',t,5.0,{size:268,st:.03})+
+  `<div style="display:flex;align-items:center">${L('Trati',t,5.12,{size:268,st:.03})}<span id="o" style="display:inline-block;width:186px;height:212px;margin:0 4px;flex:none"></span>${L('N',t,5.30,{size:268})}</div>`);
+}
+function S3(t){ // 5-10
+ let s=`<div class="L" style="transform:translate(${-(t-5)*6}px,${(t-5)*4}px)">${rings(1180,330,1000,{nums:true,rot:(t-5)*1.2})}</div>`;
+ s+=hud();
+ s+=S3layout(t);
+ s+=oTarget(O.cx,O.cy,O.r*(1+.06*Math.exp(-(t-5)*6)*Math.sin((t-5)*30)));
+ // rifle: slides in from the right, drifts (foreground = fastest layer)
+ const rx=lerp(1250,150,E.outExpo(P(t,5.45,1.0)))-(t-5.45>0?(t-5.45)*22:0);
+ s+=at(rx,1010,`<div style="width:820px;height:218px;transform:rotate(${-2+1.5*Math.exp(-Math.max(0,t-5.45)*3)*Math.sin((t-5.45)*9)}deg)">${OBJ.rifle()}</div>`);
+ s+=at(72,1300,Wd(['die','du','in','keiner'],[6.5,6.62,6.74,6.86],t,{size:96}));
+ const sk=E.outExpo(P(t,8.25,.28));
+ s+=at(72,1420,`<div style="display:flex;align-items:center;gap:28px"><div style="position:relative">${L('App',t,7.75,{size:190,color:'var(--mute)',st:.04})}
+   <div class="ab" style="left:-14px;top:44%;height:16px;width:${sk*112}%;display:${sk>0?"block":"none"};background:var(--brick);transform:rotate(-4deg);transform-origin:0 50%"></div></div>
+   ${Wd(['findest.'],[8.75],t,{size:96})}</div>`);
+ s+=`<div class="hud" style="left:72px;bottom:300px;color:var(--paper)">Luftgewehr · 10 m</div><div class="hud" style="right:72px;bottom:300px;color:var(--green)">10,9</div>`;
+ return s;
+}
+function S4(t){ // 10-15 paper scene
+ let s=`<div class="L" style="background:var(--paper)"></div>`;
+ s+=`<div class="L" style="transform:translateY(${-(t-10)*8}px)">${rings(-120,1700,1300,{col:'rgba(12,13,10,.08)'})}</div>`;
+ s+=hud('#6B6C62','var(--green)');
+ const te=12.05;
+ s+=at(64,400,L('Bei uns',t,10.2,{size:170,color:'var(--ink)',te})+L('triffst du',t,10.32,{size:170,color:'var(--ink)',te}));
+ s+=at(72,770,Wd(['nicht','nur'],[11.0,11.12],t,{size:118,color:'var(--ink)',te}));
+ s+=at(72,895,Wd(['die','Scheibe.'],[11.4,11.55],t,{size:118,color:'var(--ink)',te}));
+ if(t>=12.2){
+  s+=at(72,560,L('Du triffst',t,12.25,{size:150,color:'var(--ink)'}));
+  // LEUTE with width breathing
+  const x=P(t,12.75,.8); const wd=lerp(84,62,E.outExpo(x));
+  s+=at(56,760,L('Leute.',t,12.75,{size:356,color:'var(--green)',st:.035,style:`font-stretch:${wd.toFixed(1)}%`}));
+ }
+ // crowd of tiny hats
+ if(t>=13.55){const cols=5,rows=3;for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){const k=(r*cols+c);const ord=[3,11,7,0,13,5,9,1,14,6,2,10,4,12,8][k];
+   const x=P(t,13.55+ord*.045,.4);const sc=E.outBack(x,2.2);
+   s+=at(80+c*186,1180+r*150,`<div style="width:150px;height:105px;transform:scale(${sc}) rotate(${(ord%3-1)*6}deg)">${OBJ.hat('#0C0D0A')}</div>`);}}
+ return s;
+}
+function hatOnTop(t){ // hat rides the wipe edge (9.75-10.1), later drops onto LEUTE
+ let s='';
+ if(t>=9.72&&t<10.12){const e=E.inOutExpo(P(t,9.75,.34));const y=lerp(-300,H+60,e);
+  s+=at(560,y-250,`<div style="width:360px;height:250px;transform:rotate(${lerp(-12,10,e)}deg)">${OBJ.hat('#0C0D0A')}</div>`);}
+ if(t>=13.0&&t<15.6){const d=t-13.0;const fall=E.inCubic(P(t,13.0,.25));const y=lerp(-400,560,fall);
+  const land=t>=13.25?t-13.25:-1;const sq=land>=0?1-.18*Math.exp(-land*9)*Math.cos(land*30):1;
+  s+=at(560,y,`<div style="width:340px;height:236px;transform-origin:50% 100%;transform:scaleY(${sq}) scaleX(${2-sq}) rotate(${land>=0?-8+8*Math.exp(-land*6)*Math.cos(land*14):-20+fall*12}deg)">${OBJ.hat('#0C0D0A')}</div>`);}
+ return s;
+}
+function chainState(t){ // pendulum anchored above the frame
+ const d=t-14.4;const drop=spr(d,1.2,6);const Ay=lerp(-760,30,drop)-E.inExpo(P(t,17.3,.4))*900;
+ const th=(34*Math.exp(-1.5*d)*Math.cos(2*Math.PI*.62*d)+3*Math.sin(t*1.7))*Math.PI/180;
+ const s=1.15;return {Ax:540,Ay,th,s,Mx:540-Math.sin(th)*470*s,My:Ay+Math.cos(th)*470*s};
+}
+function chainHTML(t,st){const c=chainState(t);
+ return `<div class="ab" style="left:${c.Ax-280*c.s}px;top:${c.Ay-30*c.s}px;width:${560*c.s}px;height:${690*c.s}px;transform-origin:${280*c.s}px ${30*c.s}px;transform:rotate(${c.th*180/Math.PI}deg)">${OBJ.chain(st)}</div>`;}
+function S5(t){ // 15-21 tradition (dark), revealed through the medallion
+ const push=E.inOutExpo(P(t,17.35,.4));
+ let s=`<div class="L" style="background:var(--ink)"></div>`;
+ const c=chainState(t);
+ s+=`<div class="L" style="transform:translateY(${-push*300}px)">${rings(540,c.My+40,1500,{col:'rgba(241,238,228,.09)'})}</div>`;
+ s+=hud();
+ if(t<17.8){
+  const yy=-push*1920;
+  const yr=1899+Math.round((2026-1899)*(1-E.outExpo(P(t,15.3,1.25))));
+  s+=`<div class="L" style="transform:translateY(${yy}px)">`+
+   at(72,1010,`<div class="w" style="color:var(--green)">${t>=15.25?'Seit':''}</div>`)+
+   at(56,1060,L(String(yr),t,15.25,{size:420,st:.04,style:'font-variant-numeric:tabular-nums'}))+
+   at(72,1450,Wd(['in','Barkhausen.'],[16.75,16.9],t,{size:104}))+`</div>`;
+ }
+ if(t>=17.4){
+  const u=(t-17.4);
+  s+=`<div class="L" style="transform:translateY(${(1-push)*1920}px)">`+
+   at(64,400,L('Schützenfest',t,17.5,{size:160,st:.022}))+
+   at(60,590,L('Königs-',t,18.0,{size:236,color:'var(--green)',st:.03}))+
+   at(64,790,L('schiessen',t,18.12,{size:196,st:.03}))+
+   at(72,1090,Wd(['und','alles,'],[18.75,18.87],t,{size:92}))+
+   at(72,1196,Wd(['was','dazugehört.'],[19.0,19.15],t,{size:92}))+`</div>`;
+  const rise=spr(t-18.0,1.1,5.5);
+  s+=at(680,lerp(1960,1170,rise)-(t-18)*10,`<div style="width:330px;height:430px;transform:rotate(${6*(1-rise)}deg)">${OBJ.cup()}</div>`);
+ }
+ return s;
+}
+function S6(t){ // 21-25 silence, then PROBETRAINING
+ let s=rings(-80,1420,760,{col:'rgba(241,238,228,.10)'});
+ s+=hud();
+ s+=at(72,520,Wd(['Und','du?'],[21.2,21.42],t,{size:128,color:'var(--mute)'}));
+ // crosshair searches, then locks
+ const lk=E.outExpo(P(t,21.6,.8));
+ const wob=(1-lk)*1;
+ const cx=lerp(330,900,lk)+wob*40*Math.sin(t*5.3), cy=lerp(1300,600,lk)+wob*40*Math.cos(t*4.1);
+ const g=lerp(90,56,E.outBack(P(t,22.35,.3),2));
+ s+=`<svg class="L" width="${W}" height="${H}"><g stroke="var(--brick)" stroke-width="4" fill="none">
+  <circle cx="${cx}" cy="${cy}" r="${g}"/><line x1="${cx}" y1="${cy-g-36}" x2="${cx}" y2="${cy-g+20}"/><line x1="${cx}" y1="${cy+g-20}" x2="${cx}" y2="${cy+g+36}"/>
+  <line x1="${cx-g-36}" y1="${cy}" x2="${cx-g+20}" y2="${cy}"/><line x1="${cx+g-20}" y1="${cy}" x2="${cx+g+36}" y2="${cy}"/></g>
+  <circle cx="${cx}" cy="${cy}" r="18" fill="var(--paper)"/><circle cx="${cx}" cy="${cy}" r="12" fill="none" stroke="var(--ink)" stroke-width="2.5"/><circle cx="${cx}" cy="${cy}" r="6" fill="var(--ink)"/></svg>`;
+ if(t>=22.45){
+  s+=at(58,730,L('Probe-',t,22.5,{size:262,st:.018,d:.38,back:2})+L('training',t,22.56,{size:262,color:'var(--green)',st:.018,d:.38,back:2}));
+  const c1=E.outBack(P(t,23.25,.35),2.4),c2=E.outBack(P(t,23.5,.35),2.4);
+  s+=at(72,1270,`<div style="display:flex;gap:18px">
+   <span class="w" style="display:inline-block;border:3px solid var(--paper);padding:18px 26px;transform:scale(${c1});transform-origin:0 50%">Ohne Vorkenntnisse</span>
+   <span class="w" style="display:inline-block;background:var(--paper);color:var(--ink);padding:21px 29px;transform:scale(${c2});transform-origin:0 50%">Ab 8 Jahren</span></div>`);
+ }
+ return s;
+}
+const LT={x:540.7,y:958.9}; // centre of the target inside the crest (screen coords)
+function S7(t){ // 25-30 end card
+ let s=`<div class="L" style="background:radial-gradient(42% 26% at 50% 50%,rgba(34,162,60,.20),transparent 70%)"></div>`;
+ s+=rings(LT.x,LT.y,950,{col:'rgba(241,238,228,.10)'});
+ for(let k=0;k<5;k++){const tp=25.0+k;const x=P(t,tp,1.6);if(x>0&&x<1)
+   s+=`<svg class="L" width="${W}" height="${H}"><circle cx="${LT.x}" cy="${LT.y}" r="${lerp(240,1250,E.outCubic(x))}" fill="none" stroke="rgba(34,162,60,${.55*(1-x)})" stroke-width="${lerp(6,1,x)}"/></svg>`;}
+ s+=at(72,1240,`<div class="w" style="color:var(--mute);font-size:24px">${t>=26.0?'Schützenverein':''}</div>`);
+ s+=at(64,1272,L('Barkhausen',t,26.05,{size:150,st:.025}));
+ const ln=E.outExpo(P(t,26.5,.7));
+ s+=`<div class="ab" style="left:72px;top:1430px;height:3px;width:${ln*936}px;background:rgba(241,238,228,.22)"></div>`;
+ s+=at(72,1462,L('sv-barkhausen-porta.de',t,26.75,{size:46,cls:'',st:.012,d:.4,style:'font-weight:700;font-stretch:100%;text-transform:none'}));
+ const ar=E.outBack(P(t,27.15,.45),2.2);
+ s+=`<div class="ab" style="left:924px;top:1450px;width:84px;height:84px;border-radius:50%;background:var(--green);display:grid;place-items:center;transform:scale(${ar}) rotate(${(1-ar)*-90}deg)">
+  <svg width="34" height="34" viewBox="0 0 34 34"><path d="M6 17h20M18 8l9 9-9 9" stroke="#0C0D0A" stroke-width="4.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>`;
+ s+=at(72,1580,Wd(['Wir','sehen','uns','am','Stand.'],[27.6,27.72,27.84,27.96,28.1],t,{size:70}));
+ return s;
+}
+
+// ---- main render ----------------------------------------------------------------
+const sc=document.getElementById('sc'),cam=document.getElementById('cam'),logo=document.getElementById('logo');
+function render(t){
+ let html='',camT='';const sh=shake(t);
+ let zoom=1,zx=540,zy=960,rot=0;
+ logo.style.display='none';
+ if(t<3) html=S1(t);
+ else if(t<5) html=S2(t);
+ else if(t<10.1){html=S3(t);
+   if(t>=9.72){const e=E.inOutExpo(P(t,9.75,.34));const y=lerp(0,H+60,e); // paper wipe from the top
+     html+=`<div class="ab" style="left:0;top:0;width:${W}px;height:${y}px;background:var(--paper);overflow:hidden"><div class="L" style="height:${H}px">${S4(t)}</div></div>`;}
+   html+=hatOnTop(t);}
+ else if(t<21){
+   if(t<15.0) html=S4(t)+hatOnTop(t);
+   else{ html=S4(t)+hatOnTop(t); }
+   if(t>=14.4){
+     const c=chainState(t);
+     if(t>=15.0){const rr=lerp(24*c.s,2300,E.inOutCubic(P(t,15.0,.5)));
+       html+=`<div class="L" style="clip-path:circle(${rr}px at ${c.Mx}px ${c.My}px)">${S5(t)}</div>`;}
+     if(t<17.8) html+=chainHTML(t,t>=15.15?'#F1EEE4':'#0C0D0A');
+   }
+   if(t>=15.6) html=`<div class="L">${S5(t)}</div>`+(t<17.8?chainHTML(t,'#F1EEE4'):'');
+ }
+ else if(t<25){html=S6(t);
+   if(t>=24.5){const e=E.inExpo(P(t,24.5,.5));zoom=lerp(1,22,e);const c=S6cross();zx=c.x;zy=c.y;}}
+ else {html=S7(t);logo.style.display='block';
+   const e=E.outExpo(P(t,25.0,1.25));zoom=lerp(7,1,e);zx=LT.x;zy=LT.y;rot=lerp(-8,0,e);
+   const fl=Math.sin((t-25)*1.6)*6; logo.style.transform=`translateY(${fl*(e)}px)`;
+   logo.style.filter='drop-shadow(0 30px 40px rgba(0,0,0,.7))';}
+ sc.innerHTML=html;
+ cam.style.transformOrigin=`${zx}px ${zy}px`;
+ cam.style.transform=`translate(${sh.x.toFixed(2)}px,${sh.y.toFixed(2)}px) rotate(${(sh.r+rot).toFixed(3)}deg) scale(${zoom.toFixed(4)})`;
+ // flash
+ let fl=0;FLASH.forEach(([ti,a])=>{const d=t-ti;if(d>=0&&d<.3)fl=Math.max(fl,a*Math.exp(-d*22));});
+ document.getElementById('flash').style.opacity=fl.toFixed(3);
+ // grain jitter
+ const fr=Math.round(t*30);const gx=(fr*37)%64,gy=(fr*53)%64;
+ const g=document.getElementById('grain');g.style.transform=`translate(${-gx}px,${-gy}px)`;g.style.backgroundImage=`url(grain${fr%4}.png)`;
+ document.getElementById('grain2').style.transform=`translate(${-(fr*29)%64}px,${-(fr*17)%64}px)`;
+ // scene 4 is light: soften grain & vignette
+ const light=(t>=10.0&&t<15.3);
+ document.getElementById('vig').style.opacity=light?.45:1;
+ return true;
+}
+function S6cross(){return {x:900,y:600};}
+async function init(){
+ await document.fonts.ready;
+ await Promise.all([...Array(4)].map((_,i)=>new Promise(r=>{const im=new Image();im.onload=r;im.src=`grain${i}.png`;})));
+ await logo.decode();
+ sc.innerHTML=S3layout(9)+'<div class="serif">x</div><div class="w">x</div>';await document.fonts.load('900 268px Archivo');await document.fonts.load('italic 96px Serif');await document.fonts.ready;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const r=document.getElementById('o').getBoundingClientRect();
+ O={cx:r.left+r.width/2,cy:r.top+r.height/2,r:r.width/2};
+ render(0);window.READY=true;
+}
+init();
+</script></body></html>
