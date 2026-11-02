@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face{font-family:OS;src:url(fonts/opensans.woff2);font-weight:300 800;font-stretch:75% 100%}
+html,body{margin:0;background:transparent}
+svg{display:block}
+</style></head><body>
+<svg id="s" width="760" height="1060" viewBox="136 116 760 1060" xmlns="http://www.w3.org/2000/svg">
+  <image href="logo_cut.png" x="0" y="0" width="1024" height="1536"/>
+  <!-- white band, covers the old ring lettering -->
+  <path fill="#fff" fill-rule="evenodd" d="
+    M 161.5 511 L 161.5 798.5 A 354.75 355 0 0 0 870.9 798.5 L 870.9 511 Z
+    M 233 511 L 233 798.5 A 283.25 274 0 0 0 799.5 798.5 L 799.5 511 Z"/>
+  <path id="ring" fill="none" d="M 174.5 516 L 174.5 798.5 A 341.75 340 0 0 0 857.9 798.5 L 857.9 516"/>
+  <text id="t" font-family="OS" font-weight="800" font-size="57" fill="#111" style="font-stretch:100%;letter-spacing:1.6px">
+    <textPath href="#ring" startOffset="0">SCHÜTZENVEREIN BARKHAUSEN<tspan dx="34" dy="-8" font-size="40">•</tspan><tspan dx="34" dy="8">PORTA</tspan><tspan dx="38" font-size="50" font-weight="700">e.V.</tspan><tspan dx="38">1899</tspan></textPath>
+  </text>
+</svg>
+<script>
+document.fonts.ready.then(()=>{
+  const ring=document.getElementById('ring'), t=document.getElementById('t');
+  const L=ring.getTotalLength(); const w=t.getComputedTextLength();
+  const tot=w+144; t.querySelector('textPath').setAttribute('startOffset',((L-tot)/2).toFixed(1)); document.title=JSON.stringify({L,w,off:(L-tot)/2});
+});
+</script>
+</body></html>
