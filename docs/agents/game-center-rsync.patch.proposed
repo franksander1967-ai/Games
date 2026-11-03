@@ -1,0 +1,6 @@
+# PROPOSAL, needs human approval. Target: .github/workflows/game-center.yml, step "Prepare public files".
+# Prevents agent/test infrastructure from being published on GitHub Pages.
+-          rsync -a --exclude='.git' --exclude='.github' --exclude='scripts' --exclude='_site' --exclude='README.md' ./ _site/
++          rsync -a --exclude='.git' --exclude='.github' --exclude='.claude' --exclude='scripts' --exclude='tests' \
++            --exclude='test-results' --exclude='docs' --exclude='node_modules' --exclude='_site' \
++            --exclude='README.md' --exclude='CLAUDE.md' ./ _site/

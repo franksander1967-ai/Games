@@ -1,0 +1,42 @@
+# PROPOSAL, needs human approval. Target: .github/workflows/pr-checks.yml
+name: PR checks
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pr-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Python compile
+        run: python -m py_compile scripts/*.py
+      - name: Catalog up to date
+        run: python scripts/build_catalog.py --check
+      - name: Install Playwright (test-only, pinned)
+        run: |
+          npm install --no-save --no-package-lock playwright@1.63.0
+          npx playwright install --with-deps chromium
+      - name: Smoke test all games
+        run: node tests/smoke.mjs
+      - name: Upload screenshots and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-results
+          path: |
+            test-results/*.png
+            test-results/report.json
+          retention-days: 14

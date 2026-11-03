@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 scripts/build_catalog.py*)",
+      "Bash(node tests/smoke.mjs*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git worktree list*)",
+      "Bash(git worktree add*)"
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push origin main*)",
+      "Bash(rm -rf*)",
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-bash.sh\"" }]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [{ "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-paths.sh\"" }]
+      }
+    ]
+  }
+}
